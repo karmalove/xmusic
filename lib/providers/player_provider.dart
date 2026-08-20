@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/lyric.dart';
 import '../models/play_history.dart';
 import '../models/song.dart';
+import '../services/liked_songs_service.dart';
 import '../services/macos_tray_service.dart';
 import '../services/music_api_service.dart';
 import '../services/play_history_service.dart';
@@ -23,6 +24,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final MusicApiService _api = MusicApiService.instance;
   final AudioPlayer _player = AudioPlayer();
   final PlayHistoryService _historyService = PlayHistoryService();
+  final LikedSongsService _likedService = LikedSongsService();
   final Map<String, LyricData?> _lyricCache = {};
 
   StreamSubscription<PlayerState>? _playerStateSub;
@@ -44,6 +46,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool _lyricsLoading = false;
   String? _lyricsSongKey;
   List<PlayHistoryItem> _history = [];
+  List<Song> _liked = [];
   bool _backgroundPlayback = false;
   bool _showLyrics = true;
   bool _showTraySong = false;
@@ -71,6 +74,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool get lyricsLoading => _lyricsLoading;
   List<PlayHistoryItem> get history => _history;
   List<Song> get historySongs => _history.map((e) => e.song).toList();
+  List<Song> get likedSongs => _liked;
   bool get backgroundPlayback => _backgroundPlayback;
   bool get showLyrics => _showLyrics;
   bool get showTraySong => _showTraySong;
@@ -94,6 +98,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _init() async {
     WidgetsBinding.instance.addObserver(this);
     _history = await _historyService.load();
+    _liked = await _likedService.load();
     final prefs = await SharedPreferences.getInstance();
     _backgroundPlayback = prefs.getBool(_prefBackground) ?? Platform.isMacOS;
     _showLyrics = prefs.getBool(_prefShowLyrics) ?? true;
@@ -224,10 +229,24 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       _syncTray();
 
-      _loadLyrics(song);
+      if (song.isLocal) {
+        _lyrics = null;
+        _lyricsLoading = false;
+        _lyricCache[song.uniqueKey] = null;
+      } else {
+        _loadLyrics(song);
+      }
 
-      final url = await _api.getSongUrl(song);
-      await _player.setUrl(url);
+      if (song.isLocal && song.playUrl != null) {
+        await _player.setFilePath(song.playUrl!);
+      } else if (song.playUrl != null &&
+          (song.playUrl!.startsWith('http://') ||
+              song.playUrl!.startsWith('https://'))) {
+        await _player.setUrl(song.playUrl!);
+      } else {
+        final url = await _api.getSongUrl(song);
+        await _player.setUrl(url);
+      }
       await _player.play();
       await _recordHistory(song);
     } catch (e) {
@@ -290,6 +309,19 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> playHistory({int startIndex = 0}) async {
     if (_history.isEmpty) return;
     await playQueue(historySongs, startIndex: startIndex);
+  }
+
+  bool isLiked(Song song) => _likedService.contains(_liked, song);
+
+  Future<void> toggleLike(Song song) async {
+    _liked = _likedService.toggle(_liked, song);
+    notifyListeners();
+    await _likedService.save(_liked);
+  }
+
+  Future<void> playLiked({int startIndex = 0}) async {
+    if (_liked.isEmpty) return;
+    await playQueue(_liked, startIndex: startIndex);
   }
 
   Future<void> togglePlay() async {

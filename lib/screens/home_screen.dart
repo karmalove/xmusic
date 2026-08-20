@@ -6,10 +6,18 @@ import 'package:provider/provider.dart';
 
 import '../providers/player_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_sidebar.dart';
 import '../widgets/common_widgets.dart';
+import 'charts_screen.dart';
 import 'discover_screen.dart';
 import 'library_screen.dart';
+import 'liked_music_screen.dart';
+import 'local_music_screen.dart';
+import 'mv_screen.dart';
 import 'player_screen.dart';
+import 'playlists_screen.dart';
+import 'recent_play_screen.dart';
+import 'recommend_screen.dart';
 import 'search_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -20,16 +28,44 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _currentIndex = 0;
+  AppNavItem _nav = AppNavItem.discover;
 
-  static const _tabs = [
-    (icon: Icons.explore_rounded, label: '发现'),
-    (icon: Icons.search_rounded, label: '搜索'),
-    (icon: Icons.library_music_rounded, label: '我的'),
-  ];
+  static const _wideBreakpoint = 800.0;
+
+  Widget _pageFor(AppNavItem item) {
+    switch (item) {
+      case AppNavItem.discover:
+        return DiscoverScreen(
+          onOpenRecommend: () => setState(() => _nav = AppNavItem.recommend),
+          onOpenCharts: () => setState(() => _nav = AppNavItem.charts),
+          onOpenPlaylists: () => setState(() => _nav = AppNavItem.playlists),
+          onOpenMv: () => setState(() => _nav = AppNavItem.mv),
+        );
+      case AppNavItem.recommend:
+        return const RecommendScreen();
+      case AppNavItem.playlists:
+        return const PlaylistsScreen();
+      case AppNavItem.mv:
+        return const MvScreen();
+      case AppNavItem.charts:
+        return const ChartsScreen();
+      case AppNavItem.recent:
+        return const RecentPlayScreen();
+      case AppNavItem.local:
+        return const LocalMusicScreen();
+      case AppNavItem.liked:
+        return const LikedMusicScreen();
+      case AppNavItem.search:
+        return const SearchScreen();
+      case AppNavItem.settings:
+        return const LibraryScreen();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= _wideBreakpoint;
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -37,13 +73,62 @@ class _HomeScreenState extends State<HomeScreen> {
         _moveToBackground();
       },
       child: Scaffold(
-        body: IndexedStack(
-          index: _currentIndex,
-          children: const [DiscoverScreen(), SearchScreen(), LibraryScreen()],
-        ),
-        bottomNavigationBar: Column(
-          mainAxisSize: MainAxisSize.min,
+        drawer: wide
+            ? null
+            : Drawer(
+                backgroundColor: AppColors.surface,
+                child: AppSidebar(
+                  selected: _nav,
+                  onSelect: (item) {
+                    setState(() => _nav = item);
+                    Navigator.of(context).maybePop();
+                  },
+                ),
+              ),
+        body: Column(
           children: [
+            Expanded(
+              child: wide
+                  ? Row(
+                      children: [
+                        AppSidebar(
+                          selected: _nav,
+                          onSelect: (item) => setState(() => _nav = item),
+                        ),
+                        Expanded(child: _pageFor(_nav)),
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        SafeArea(
+                          bottom: false,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 4, 12, 0),
+                            child: Row(
+                              children: [
+                                Builder(
+                                  builder: (context) => IconButton(
+                                    icon: const Icon(Icons.menu_rounded),
+                                    onPressed: () =>
+                                        Scaffold.of(context).openDrawer(),
+                                  ),
+                                ),
+                                Text(
+                                  _mobileTitle(_nav),
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Expanded(child: _pageFor(_nav)),
+                      ],
+                    ),
+            ),
             Selector<PlayerProvider, _MiniPlayerViewModel?>(
               selector: (_, player) {
                 final song = player.currentSong;
@@ -98,29 +183,97 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
             ),
-            Container(
-              decoration: const BoxDecoration(
-                border: Border(
-                  top: BorderSide(color: AppColors.divider, width: 0.5),
+            if (!wide)
+              Container(
+                decoration: const BoxDecoration(
+                  border: Border(
+                    top: BorderSide(color: AppColors.divider, width: 0.5),
+                  ),
+                ),
+                child: BottomNavigationBar(
+                  currentIndex: _mobileTabIndex(_nav),
+                  onTap: (i) => setState(() => _nav = _mobileTabItem(i)),
+                  items: const [
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.explore_outlined),
+                      label: '发现',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.emoji_events_outlined),
+                      label: '排行',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.search_rounded),
+                      label: '搜索',
+                    ),
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.library_music_rounded),
+                      label: '我的',
+                    ),
+                  ],
                 ),
               ),
-              child: BottomNavigationBar(
-                currentIndex: _currentIndex,
-                onTap: (i) => setState(() => _currentIndex = i),
-                items: _tabs
-                    .map(
-                      (t) => BottomNavigationBarItem(
-                        icon: Icon(t.icon),
-                        label: t.label,
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
           ],
         ),
       ),
     );
+  }
+
+  String _mobileTitle(AppNavItem item) {
+    switch (item) {
+      case AppNavItem.discover:
+        return '发现';
+      case AppNavItem.playlists:
+        return '歌单';
+      case AppNavItem.mv:
+        return 'MV';
+      case AppNavItem.recommend:
+        return '推荐';
+      case AppNavItem.charts:
+        return '排行榜';
+      case AppNavItem.recent:
+        return '最近播放';
+      case AppNavItem.local:
+        return '本地音乐';
+      case AppNavItem.liked:
+        return '我喜欢的音乐';
+      case AppNavItem.search:
+        return '搜索';
+      case AppNavItem.settings:
+        return '设置';
+    }
+  }
+
+  int _mobileTabIndex(AppNavItem item) {
+    switch (item) {
+      case AppNavItem.discover:
+      case AppNavItem.playlists:
+      case AppNavItem.mv:
+      case AppNavItem.recommend:
+        return 0;
+      case AppNavItem.charts:
+        return 1;
+      case AppNavItem.search:
+        return 2;
+      case AppNavItem.settings:
+      case AppNavItem.recent:
+      case AppNavItem.local:
+      case AppNavItem.liked:
+        return 3;
+    }
+  }
+
+  AppNavItem _mobileTabItem(int index) {
+    switch (index) {
+      case 0:
+        return AppNavItem.discover;
+      case 1:
+        return AppNavItem.charts;
+      case 2:
+        return AppNavItem.search;
+      default:
+        return AppNavItem.settings;
+    }
   }
 
   Future<void> _moveToBackground() async {

@@ -5,7 +5,8 @@ class ApiConfig {
   static const String apiBase = 'https://ios.25pan.com';
   static const String musicApi = '$apiBase/api/music';
   static const String sessionApi = '$apiBase/api/v1/music/secure/session';
-  static const String defaultSource = 'kuwo';
+  static const String defaultSource = 'netease';
+  static const String qishuiSource = 'qishui';
 
   static const String acceptHeader =
       'application/vnd.tabos.music+json; charset=utf-8';

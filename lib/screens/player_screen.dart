@@ -75,6 +75,18 @@ class PlayerScreen extends StatelessWidget {
                         ),
                         IconButton(
                           icon: Icon(
+                            player.isLiked(song)
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            color: player.isLiked(song)
+                                ? AppColors.error
+                                : AppColors.textSecondary,
+                          ),
+                          onPressed: () => player.toggleLike(song),
+                          tooltip: player.isLiked(song) ? '取消喜欢' : '我喜欢',
+                        ),
+                        IconButton(
+                          icon: Icon(
                             player.showLyrics
                                 ? Icons.lyrics_rounded
                                 : Icons.album_rounded,

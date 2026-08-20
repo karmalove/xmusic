@@ -1,9 +1,9 @@
 import 'dart:ui';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../utils/cover_image.dart';
 
 class BlurredCoverBackground extends StatelessWidget {
   final String? imageUrl;
@@ -23,14 +23,13 @@ class BlurredCoverBackground extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         if (imageUrl != null && imageUrl!.isNotEmpty)
-          CachedNetworkImage(
-            imageUrl: imageUrl!,
+          CoverNetworkImage(
+            url: imageUrl!,
             fit: BoxFit.cover,
             memCacheWidth: 480,
             memCacheHeight: 480,
             maxWidthDiskCache: 480,
             maxHeightDiskCache: 480,
-            filterQuality: FilterQuality.low,
             placeholder: (_, __) => _fallbackGradient(),
             errorWidget: (_, __, ___) => _fallbackGradient(),
           )
@@ -99,14 +98,13 @@ class AlbumCover extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(radius),
         child: url != null && url!.isNotEmpty
-            ? CachedNetworkImage(
-                imageUrl: url!,
+            ? CoverNetworkImage(
+                url: url!,
                 fit: BoxFit.cover,
                 memCacheWidth: cacheSize,
                 memCacheHeight: cacheSize,
                 maxWidthDiskCache: 512,
                 maxHeightDiskCache: 512,
-                filterQuality: FilterQuality.low,
                 placeholder: (_, __) => _placeholder(),
                 errorWidget: (_, __, ___) => _placeholder(),
               )
@@ -179,6 +177,7 @@ class SongTile extends StatelessWidget {
   final String subtitle;
   final String? coverUrl;
   final String? trailing;
+  final Widget? trailingWidget;
   final VoidCallback? onTap;
   final int? index;
 
@@ -188,6 +187,7 @@ class SongTile extends StatelessWidget {
     required this.subtitle,
     this.coverUrl,
     this.trailing,
+    this.trailingWidget,
     this.onTap,
     this.index,
   });
@@ -250,7 +250,9 @@ class SongTile extends StatelessWidget {
                   ],
                 ),
               ),
-              if (trailing != null)
+              if (trailingWidget != null)
+                trailingWidget!
+              else if (trailing != null)
                 Text(
                   trailing!,
                   style: const TextStyle(
@@ -258,12 +260,14 @@ class SongTile extends StatelessWidget {
                     color: AppColors.textMuted,
                   ),
                 ),
-              const SizedBox(width: 8),
-              const Icon(
-                Icons.more_horiz_rounded,
-                color: AppColors.textMuted,
-                size: 20,
-              ),
+              if (trailingWidget == null) ...[
+                const SizedBox(width: 8),
+                const Icon(
+                  Icons.more_horiz_rounded,
+                  color: AppColors.textMuted,
+                  size: 20,
+                ),
+              ],
             ],
           ),
         ),
@@ -275,12 +279,14 @@ class SongTile extends StatelessWidget {
 class PlaylistCard extends StatelessWidget {
   final String title;
   final String? coverUrl;
+  final String? badgeText;
   final VoidCallback? onTap;
 
   const PlaylistCard({
     super.key,
     required this.title,
     this.coverUrl,
+    this.badgeText,
     this.onTap,
   });
 
@@ -288,26 +294,64 @@ class PlaylistCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: SizedBox(
-        width: 140,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AlbumCover(url: coverUrl, size: 140, radius: 14),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: AppColors.textPrimary,
-                height: 1.3,
-              ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final bounded = constraints.maxHeight.isFinite;
+          final coverSize = bounded
+              ? (constraints.maxHeight - 46).clamp(96.0, 140.0)
+              : 140.0;
+
+          final titleText = Text(
+            title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textPrimary,
+              height: 1.3,
             ),
-          ],
-        ),
+          );
+
+          return SizedBox(
+            width: 140,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    AlbumCover(url: coverUrl, size: coverSize, radius: 14),
+                    if (badgeText != null && badgeText!.isNotEmpty)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            badgeText!,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (bounded) Expanded(child: titleText) else titleText,
+              ],
+            ),
+          );
+        },
       ),
     );
   }

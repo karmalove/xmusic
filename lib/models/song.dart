@@ -2,16 +2,31 @@ class Artist {
   final String id;
   final String name;
   final String source;
+  final String cover;
 
-  const Artist({required this.id, required this.name, this.source = ''});
+  const Artist({
+    required this.id,
+    required this.name,
+    this.source = '',
+    this.cover = '',
+  });
 
   factory Artist.fromJson(Map<String, dynamic> json) => Artist(
     id: json['id']?.toString() ?? '',
     name: json['name']?.toString() ?? '',
     source: json['source']?.toString() ?? '',
+    cover: json['cover']?.toString() ??
+        json['pic']?.toString() ??
+        json['avatar']?.toString() ??
+        '',
   );
 
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'source': source};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'source': source,
+    'cover': cover,
+  };
 }
 
 class Album {
@@ -30,9 +45,15 @@ class Album {
   factory Album.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const Album(id: '', name: '');
     return Album(
-      id: json['id']?.toString() ?? '',
-      name: json['name']?.toString() ?? '',
-      cover: json['cover']?.toString() ?? '',
+      id: json['id']?.toString() ??
+          json['albumid']?.toString() ??
+          json['albumId']?.toString() ??
+          '',
+      name: json['name']?.toString() ?? json['albumname']?.toString() ?? '',
+      cover: json['cover']?.toString() ??
+          json['pic']?.toString() ??
+          json['img']?.toString() ??
+          '',
       source: json['source']?.toString() ?? '',
     );
   }
@@ -104,6 +125,7 @@ class Song {
             : null,
       ),
       playable: json['playable'] != false,
+      playUrl: json['playUrl']?.toString(),
     );
   }
 
@@ -116,9 +138,12 @@ class Song {
     'artists': artists.map((a) => a.toJson()).toList(),
     'album': album.toJson(),
     'playable': playable,
+    if (playUrl != null) 'playUrl': playUrl,
   };
 
   String get uniqueKey => '$source:$id';
+
+  bool get isLocal => source == 'local';
 
   static int parseInt(dynamic value) {
     if (value is int) return value;
@@ -145,6 +170,7 @@ class Playlist {
   final String cover;
   final String source;
   final int songCount;
+  final int playCount;
 
   const Playlist({
     required this.id,
@@ -152,7 +178,24 @@ class Playlist {
     this.cover = '',
     this.source = '',
     this.songCount = 0,
+    this.playCount = 0,
   });
+
+  String get uniqueKey => '$source:$id';
+
+  String get playCountText {
+    if (playCount <= 0) {
+      if (songCount <= 0) return '';
+      return '$songCount 首';
+    }
+    if (playCount >= 100000000) {
+      return '${(playCount / 100000000).toStringAsFixed(1)}亿';
+    }
+    if (playCount >= 10000) {
+      return '${(playCount / 10000).toStringAsFixed(1)}万';
+    }
+    return '$playCount';
+  }
 
   factory Playlist.fromJson(Map<String, dynamic> json) => Playlist(
     id: json['id']?.toString() ?? '',
@@ -160,6 +203,9 @@ class Playlist {
     cover: json['cover']?.toString() ?? json['pic']?.toString() ?? '',
     source: json['source']?.toString() ?? '',
     songCount: Song.parseInt(json['songCount'] ?? json['trackCount']),
+    playCount: Song.parseInt(
+      json['playCount'] ?? json['playcount'] ?? json['listenCount'] ?? json['heat'],
+    ),
   );
 }
 
@@ -182,4 +228,105 @@ class Chart {
     cover: json['cover']?.toString() ?? '',
     source: json['source']?.toString() ?? '',
   );
+}
+
+class ChartPreview {
+  final Chart chart;
+  final List<Song> topSongs;
+
+  const ChartPreview({required this.chart, required this.topSongs});
+}
+
+class PlaylistCategory {
+  final String id;
+  final String name;
+
+  const PlaylistCategory({required this.id, required this.name});
+
+  factory PlaylistCategory.fromJson(Map<String, dynamic> json) =>
+      PlaylistCategory(
+        id: json['id']?.toString() ?? '',
+        name: json['name']?.toString() ?? json['title']?.toString() ?? '',
+      );
+}
+
+class RadioStation {
+  final String id;
+  final String name;
+  final String cover;
+  final String source;
+  final String description;
+
+  const RadioStation({
+    required this.id,
+    required this.name,
+    this.cover = '',
+    this.source = '',
+    this.description = '',
+  });
+
+  factory RadioStation.fromJson(Map<String, dynamic> json, {String fallbackSource = ''}) =>
+      RadioStation(
+        id: json['id']?.toString() ??
+            json['radioId']?.toString() ??
+            json['radio_id']?.toString() ??
+            '',
+        name: json['name']?.toString() ?? json['title']?.toString() ?? '',
+        cover: json['cover']?.toString() ??
+            json['pic_url']?.toString() ??
+            json['pic']?.toString() ??
+            json['image']?.toString() ??
+            '',
+        source: json['source']?.toString() ??
+            json['provider']?.toString() ??
+            json['platform']?.toString() ??
+            fallbackSource,
+        description: json['description']?.toString() ??
+            json['desc']?.toString() ??
+            '',
+      );
+}
+
+class MusicRadioGroup {
+  final String name;
+  final List<RadioStation> radios;
+
+  const MusicRadioGroup({required this.name, required this.radios});
+}
+
+class MusicVideo {
+  final String id;
+  final String name;
+  final String cover;
+  final String source;
+  final String artist;
+
+  const MusicVideo({
+    required this.id,
+    required this.name,
+    this.cover = '',
+    this.source = '',
+    this.artist = '',
+  });
+
+  factory MusicVideo.fromJson(Map<String, dynamic> json, {String fallbackSource = ''}) {
+    var artist = json['artist']?.toString() ?? '';
+    final artistsRaw = json['artists'];
+    if (artist.isEmpty && artistsRaw is List) {
+      artist = artistsRaw
+          .map((e) => e is Map ? e['name']?.toString() ?? '' : e.toString())
+          .where((s) => s.isNotEmpty)
+          .join(' / ');
+    }
+    return MusicVideo(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? json['title']?.toString() ?? '',
+      cover: json['cover']?.toString() ??
+          json['pic']?.toString() ??
+          json['img']?.toString() ??
+          '',
+      source: json['source']?.toString() ?? fallbackSource,
+      artist: artist,
+    );
+  }
 }

@@ -2,15 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/song.dart';
+import '../providers/music_source_provider.dart';
 import '../providers/player_provider.dart';
 import '../services/music_api_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/cover_image.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/xmusic_wordmark.dart';
 import 'playlist_detail_screen.dart';
 
+/// 对齐官网 FreeMusicApp `hv()`：推荐歌单 / 榜单精选 / 新歌 / MV。
 class DiscoverScreen extends StatefulWidget {
-  const DiscoverScreen({super.key});
+  final VoidCallback? onOpenRecommend;
+  final VoidCallback? onOpenCharts;
+  final VoidCallback? onOpenPlaylists;
+  final VoidCallback? onOpenMv;
+
+  const DiscoverScreen({
+    super.key,
+    this.onOpenRecommend,
+    this.onOpenCharts,
+    this.onOpenPlaylists,
+    this.onOpenMv,
+  });
 
   @override
   State<DiscoverScreen> createState() => _DiscoverScreenState();
@@ -18,17 +32,37 @@ class DiscoverScreen extends StatefulWidget {
 
 class _DiscoverScreenState extends State<DiscoverScreen> {
   final MusicApiService _api = MusicApiService.instance;
-  List<Song> _personalFm = [];
+  final ScrollController _scrollController = ScrollController();
+  MusicSourceProvider? _sourceProvider;
+
   List<Song> _newSongs = [];
   List<Playlist> _playlists = [];
-  List<Chart> _charts = [];
+  List<ChartPreview> _chartPreviews = [];
+  List<MusicVideo> _mvs = [];
   bool _loading = true;
   String? _error;
+
+  final _newSongsKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _sourceProvider = context.read<MusicSourceProvider>();
+      _sourceProvider!.addListener(_onSourceChanged);
+      _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _sourceProvider?.removeListener(_onSourceChanged);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onSourceChanged() {
+    if (mounted) _load();
   }
 
   Future<T?> _safeCall<T>(String name, Future<T> Function() fn) async {
@@ -54,40 +88,39 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     try {
       await _api.ensureReady();
 
+      // 与官网 hv() 一致：并行拉歌单 / 榜单 / 新歌 / MV。
       final results = await Future.wait([
-        _safeCall('personalFm', _api.getPersonalFm),
-        _safeCall('newSongs', _api.getRecommendNewSongs),
-        _safeCall('playlists', _api.getRecommendPlaylists),
-        _safeCall('charts', _api.getCharts),
+        _safeCall('homePlaylists', () => _api.getDiscoverHomePlaylists()),
+        _safeCall('chartPreviews', () => _api.getDiscoverChartPreviews(limit: 6)),
+        _safeCall('newSongs', () => _api.getDiscoverNewSongs(limit: 18)),
+        _safeCall('mvs', () => _api.getDiscoverMvs(limit: 20)),
       ]);
 
-      final personalFm = results[0] as List<Song>? ?? [];
-      final newSongs = results[1] as List<Song>? ?? [];
-      final playlists = results[2] as List<Playlist>? ?? [];
-      final charts = results[3] as List<Chart>? ?? [];
+      final playlists = results[0] as List<Playlist>? ?? [];
+      final chartPreviews = results[1] as List<ChartPreview>? ?? [];
+      final newSongs = results[2] as List<Song>? ?? [];
+      final mvs = results[3] as List<MusicVideo>? ?? [];
 
-      if (mounted) {
-        setState(() {
-          _personalFm = personalFm;
-          _newSongs = newSongs;
-          _playlists = playlists;
-          _charts = charts;
-          _loading = false;
-          if (personalFm.isEmpty &&
-              newSongs.isEmpty &&
-              playlists.isEmpty &&
-              charts.isEmpty) {
-            _error = '无法加载音乐数据，请检查网络后下拉刷新';
-          }
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _playlists = playlists;
+        _chartPreviews = chartPreviews;
+        _newSongs = newSongs;
+        _mvs = mvs;
+        _loading = false;
+        if (playlists.isEmpty &&
+            chartPreviews.isEmpty &&
+            newSongs.isEmpty &&
+            mvs.isEmpty) {
+          _error = '无法加载音乐数据，请检查网络后下拉刷新';
+        }
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = '加载失败: $e';
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '加载失败: $e';
+      });
     }
   }
 
@@ -99,6 +132,60 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         );
   }
 
+  void _openPlaylist(Playlist pl) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlaylistDetailScreen(
+          title: pl.name,
+          playlistId: pl.id,
+          source: pl.source,
+        ),
+      ),
+    );
+  }
+
+  void _openChart(Chart chart) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlaylistDetailScreen(
+          title: chart.name,
+          chartId: chart.id,
+          source: chart.source,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _playDailyOrFm() async {
+    // 每日推荐 / 私人 FM → 官网切到推荐页并播私人 FM。
+    if (widget.onOpenRecommend != null) {
+      widget.onOpenRecommend!();
+      return;
+    }
+    try {
+      final songs = await _api.getPersonalFm();
+      if (songs.isNotEmpty && mounted) {
+        _playSong(songs.first, songs);
+      }
+    } catch (_) {}
+  }
+
+  void _scrollToNewSongs() {
+    if (_newSongs.isEmpty) return;
+    final ctx = _newSongsKey.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _playSong(_newSongs.first, _newSongs);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
@@ -106,18 +193,14 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
       backgroundColor: AppColors.surface,
       onRefresh: _load,
       child: CustomScrollView(
+        controller: _scrollController,
         slivers: [
           SliverAppBar(
-            expandedHeight: 120,
             floating: true,
-            pinned: false,
             backgroundColor: AppColors.background,
-            flexibleSpace: const FlexibleSpaceBar(
-              titlePadding: EdgeInsets.only(left: 20, bottom: 16),
-              title: Align(
-                alignment: Alignment.bottomLeft,
-                child: XmusicWordmark(height: 20),
-              ),
+            title: const Align(
+              alignment: Alignment.centerLeft,
+              child: XmusicWordmark(height: 20),
             ),
           ),
           if (_loading)
@@ -127,9 +210,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               ),
             )
           else if (_error != null &&
-              _personalFm.isEmpty &&
               _newSongs.isEmpty &&
-              _charts.isEmpty)
+              _playlists.isEmpty &&
+              _chartPreviews.isEmpty &&
+              _mvs.isEmpty)
             SliverFillRemaining(
               child: Center(
                 child: Padding(
@@ -163,103 +247,117 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               ),
             )
           else ...[
-            if (_personalFm.isNotEmpty) ...[
-              SliverToBoxAdapter(
-                child: _FeaturedCard(
-                  song: _personalFm.first,
-                  onPlay: () => _playSong(_personalFm.first, _personalFm),
-                  onPlayAll: () =>
-                      context.read<PlayerProvider>().playQueue(_personalFm),
-                ),
+            SliverToBoxAdapter(
+              child: _EntryCards(
+                onDaily: _playDailyOrFm,
+                onNewSongs: _scrollToNewSongs,
+                onPersonalFm: _playDailyOrFm,
+                onCharts: () => widget.onOpenCharts?.call(),
               ),
-            ],
-            if (_charts.isNotEmpty) ...[
+            ),
+            if (_playlists.isNotEmpty) ...[
               SliverToBoxAdapter(
                 child: SectionHeader(
-                  title: '排行榜',
-                  onMore: () {},
+                  title: '推荐歌单',
+                  onMore: widget.onOpenPlaylists,
                 ),
               ),
               SliverToBoxAdapter(
                 child: SizedBox(
-                  height: 100,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    itemCount: _charts.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
-                    itemBuilder: (_, i) {
-                      final chart = _charts[i];
-                      return _ChartChip(
-                        chart: chart,
-                        rank: i + 1,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => PlaylistDetailScreen(
-                                title: chart.name,
-                                chartId: chart.id,
-                                source: chart.source,
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ],
-            if (_playlists.isNotEmpty) ...[
-              const SliverToBoxAdapter(child: SectionHeader(title: '推荐歌单')),
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 190,
+                  height: 210,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     itemCount: _playlists.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 14),
+                    separatorBuilder: (_, _) => const SizedBox(width: 14),
                     itemBuilder: (_, i) {
                       final pl = _playlists[i];
                       return PlaylistCard(
                         title: pl.name,
                         coverUrl: pl.cover,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => PlaylistDetailScreen(
-                                title: pl.name,
-                                playlistId: pl.id,
-                                source: pl.source,
-                              ),
-                            ),
-                          );
-                        },
+                        badgeText: pl.playCountText,
+                        onTap: () => _openPlaylist(pl),
                       );
                     },
                   ),
                 ),
               ),
             ],
-            if (_newSongs.isNotEmpty) ...[
-              const SliverToBoxAdapter(child: SectionHeader(title: '新歌推荐')),
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (_, i) {
-                    final song = _newSongs[i];
-                    return SongTile(
-                      index: i + 1,
-                      title: song.name,
-                      subtitle: song.artistName,
-                      coverUrl: song.cover,
-                      trailing: song.durationText,
-                      onTap: () => _playSong(song, _newSongs),
+            if (_chartPreviews.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: SectionHeader(
+                  title: '榜单精选',
+                  onMore: widget.onOpenCharts,
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                sliver: SliverGrid(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount:
+                        MediaQuery.sizeOf(context).width >= 720 ? 3 : 2,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 1.05,
+                  ),
+                  delegate: SliverChildBuilderDelegate((context, i) {
+                    final preview = _chartPreviews[i];
+                    return _ChartPreviewCard(
+                      preview: preview,
+                      onTap: () => _openChart(preview.chart),
+                      onPlaySong: (song) {
+                        _playSong(song, preview.topSongs);
+                      },
                     );
-                  },
-                  childCount: _newSongs.length.clamp(0, 20),
+                  }, childCount: _chartPreviews.length),
+                ),
+              ),
+            ],
+            if (_newSongs.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                key: _newSongsKey,
+                child: const SectionHeader(title: '新歌推荐'),
+              ),
+              SliverList(
+                delegate: SliverChildBuilderDelegate((_, i) {
+                  final song = _newSongs[i];
+                  return SongTile(
+                    index: i + 1,
+                    title: song.name,
+                    subtitle: song.artistName,
+                    coverUrl: song.cover,
+                    trailing: song.durationText,
+                    onTap: () => _playSong(song, _newSongs),
+                  );
+                }, childCount: _newSongs.length.clamp(0, 18)),
+              ),
+            ],
+            if (_mvs.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: SectionHeader(
+                  title: 'MV 推荐',
+                  onMore: widget.onOpenMv,
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 180,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    itemCount: _mvs.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 14),
+                    itemBuilder: (_, i) {
+                      final mv = _mvs[i];
+                      return _MvCard(
+                        mv: mv,
+                        onTap: () {
+                          // MV 详情播放地址需额外接口；先跳转到 MV 页。
+                          widget.onOpenMv?.call();
+                        },
+                      );
+                    },
+                  ),
                 ),
               ),
             ],
@@ -271,146 +369,204 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 }
 
-class _FeaturedCard extends StatelessWidget {
-  final Song song;
-  final VoidCallback onPlay;
-  final VoidCallback onPlayAll;
+class _EntryCards extends StatelessWidget {
+  final VoidCallback onDaily;
+  final VoidCallback onNewSongs;
+  final VoidCallback onPersonalFm;
+  final VoidCallback onCharts;
 
-  const _FeaturedCard({
-    required this.song,
-    required this.onPlay,
-    required this.onPlayAll,
+  const _EntryCards({
+    required this.onDaily,
+    required this.onNewSongs,
+    required this.onPersonalFm,
+    required this.onCharts,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-      height: 180,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1E3A5F), Color(0xFF0D2137)],
+    final cards = [
+      (
+        title: '每日推荐',
+        subtitle: '根据你的口味生成',
+        colors: const [Color(0xFFFC5C7D), Color(0xFF6A82FB)],
+        onTap: onDaily,
+      ),
+      (
+        title: '新歌首发',
+        subtitle: '抢先听最新单曲',
+        colors: const [Color(0xFFF5AF19), Color(0xFFF12711)],
+        onTap: onNewSongs,
+      ),
+      (
+        title: '私人FM',
+        subtitle: '懂你的音乐电台',
+        colors: const [Color(0xFF43E97B), Color(0xFF38F9D7)],
+        onTap: onPersonalFm,
+      ),
+      (
+        title: '排行榜',
+        subtitle: '实时热门音乐',
+        colors: const [Color(0xFFA18CD1), Color(0xFFFBC2EB)],
+        onTap: onCharts,
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 640;
+          if (wide) {
+            return Row(
+              children: [
+                for (var i = 0; i < cards.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 12),
+                  Expanded(
+                    child: _EntryCard(
+                      title: cards[i].title,
+                      subtitle: cards[i].subtitle,
+                      colors: cards[i].colors,
+                      onTap: cards[i].onTap,
+                    ),
+                  ),
+                ],
+              ],
+            );
+          }
+          return GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            childAspectRatio: 1.55,
+            children: [
+              for (final c in cards)
+                _EntryCard(
+                  title: c.title,
+                  subtitle: c.subtitle,
+                  colors: c.colors,
+                  onTap: c.onTap,
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _EntryCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final List<Color> colors;
+  final VoidCallback onTap;
+
+  const _EntryCard({
+    required this.title,
+    required this.subtitle,
+    required this.colors,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 88,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: colors,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.white.withValues(alpha: 0.85),
+              ),
+            ),
+          ],
         ),
       ),
-      child: Stack(
-        children: [
-          Positioned(
-            right: -20,
-            bottom: -20,
-            child: Opacity(
-              opacity: 0.3,
-              child: AlbumCover(url: song.cover, size: 160, radius: 80),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    '私人 FM',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  song.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  song.artistName,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
+    );
+  }
+}
+
+class _MvCard extends StatelessWidget {
+  final MusicVideo mv;
+  final VoidCallback onTap;
+
+  const _MvCard({required this.mv, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 160,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Stack(
+                  fit: StackFit.expand,
                   children: [
-                    _ActionButton(
-                      icon: Icons.play_arrow_rounded,
-                      label: '播放',
-                      filled: true,
-                      onTap: onPlay,
-                    ),
-                    const SizedBox(width: 12),
-                    _ActionButton(
-                      icon: Icons.queue_music_rounded,
-                      label: '播放全部',
-                      onTap: onPlayAll,
+                    mv.cover.isNotEmpty
+                        ? CoverNetworkImage(url: mv.cover, fit: BoxFit.cover)
+                        : Container(color: AppColors.surface),
+                    const Center(
+                      child: Icon(
+                        Icons.play_circle_fill_rounded,
+                        color: Colors.white70,
+                        size: 40,
+                      ),
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool filled;
-  final VoidCallback onTap;
-
-  const _ActionButton({
-    required this.icon,
-    required this.label,
-    this.filled = false,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: filled ? AppColors.primary : Colors.white.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 18,
-              color: filled ? Colors.black : AppColors.textPrimary,
-            ),
-            const SizedBox(width: 6),
+            const SizedBox(height: 8),
             Text(
-              label,
-              style: TextStyle(
+              mv.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: filled ? Colors.black : AppColors.textPrimary,
+                color: AppColors.textPrimary,
               ),
             ),
+            if (mv.artist.isNotEmpty)
+              Text(
+                mv.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppColors.textSecondary,
+                ),
+              ),
           ],
         ),
       ),
@@ -418,61 +574,108 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
-class _ChartChip extends StatelessWidget {
-  final Chart chart;
-  final int rank;
+class _ChartPreviewCard extends StatelessWidget {
+  final ChartPreview preview;
   final VoidCallback onTap;
+  final ValueChanged<Song> onPlaySong;
 
-  const _ChartChip({
-    required this.chart,
-    required this.rank,
+  const _ChartPreviewCard({
+    required this.preview,
     required this.onTap,
+    required this.onPlaySong,
   });
-
-  static const _colors = [
-    Color(0xFFFF6B6B),
-    Color(0xFFFF9F43),
-    Color(0xFF00D9A5),
-    Color(0xFF6C5CE7),
-    Color(0xFF74B9FF),
-  ];
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 160,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.divider),
-        ),
-        child: Row(
-          children: [
-            Text(
-              '$rank',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                color: _colors[(rank - 1) % _colors.length],
+    final chart = preview.chart;
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: chart.cover.isNotEmpty
+                          ? CoverNetworkImage(
+                              url: chart.cover,
+                              fit: BoxFit.cover,
+                            )
+                          : Container(
+                              color: AppColors.background,
+                              child: const Icon(
+                                Icons.emoji_events_outlined,
+                                color: AppColors.textMuted,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      chart.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                chart.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+              const SizedBox(height: 10),
+              Expanded(
+                child: ListView.builder(
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: preview.topSongs.length.clamp(0, 3),
+                  itemBuilder: (_, i) {
+                    final song = preview.topSongs[i];
+                    return InkWell(
+                      onTap: () => onPlaySong(song),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            Text(
+                              '${i + 1}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textMuted,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                song.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
