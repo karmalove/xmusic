@@ -1,0 +1,46 @@
+name: Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate icons
+        run: dart run flutter_launcher_icons
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Package ZIP
+        shell: pwsh
+        run: |
+          $buildDir = "build/windows/x64/runner/Release"
+          $distDir = "dist/XMUSIC-Windows-x64"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Recurse -Force $buildDir $distDir
+          Compress-Archive -Path $distDir -DestinationPath dist/XMUSIC-Windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XMUSIC-Windows-x64
+          path: |
+            dist/XMUSIC-Windows-x64.zip
+            dist/XMUSIC-Windows-x64/xmusic.exe
