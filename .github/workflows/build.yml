@@ -1,0 +1,213 @@
+name: Build Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Build target"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+          - android
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: "3.44.8"
+
+jobs:
+  build-windows:
+    name: Windows
+    runs-on: windows-latest
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'windows'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate icons
+        run: dart run flutter_launcher_icons
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Package ZIP
+        shell: pwsh
+        run: |
+          $buildDir = "build/windows/x64/runner/Release"
+          $distDir = "dist/XMUSIC-Windows-x64"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Recurse -Force $buildDir $distDir
+          Compress-Archive -Path $distDir -DestinationPath dist/XMUSIC-Windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XMUSIC-Windows-x64
+          path: dist/XMUSIC-Windows-x64.zip
+          retention-days: 30
+
+  build-macos:
+    name: macOS
+    runs-on: macos-latest
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'macos'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install icon tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install pillow numpy
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate macOS icons
+        run: python3 tool/generate_icons.py
+
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+          APP="build/macos/Build/Products/Release/XMUSIC.app"
+          mkdir -p dist
+          rm -f dist/XMUSIC.dmg
+          create-dmg \
+            --volname "XMUSIC" \
+            --volicon "assets/icon/app_icon_macos.png" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "XMUSIC.app" 150 185 \
+            --hide-extension "XMUSIC.app" \
+            --app-drop-link 450 185 \
+            "dist/XMUSIC.dmg" \
+            "$APP"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XMUSIC-macOS-universal
+          path: |
+            dist/XMUSIC.dmg
+            build/macos/Build/Products/Release/XMUSIC.app
+          retention-days: 30
+
+  build-android:
+    name: Android
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'android'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate icons
+        run: dart run flutter_launcher_icons
+
+      - name: Accept Android licenses
+        run: yes | flutter doctor --android-licenses || true
+
+      - name: Build Android APK
+        run: flutter build apk --release
+
+      - name: Package APK
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/XMUSIC-Android.apk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XMUSIC-Android-apk
+          path: dist/XMUSIC-Android.apk
+          retention-days: 30
+
+  release:
+    name: GitHub Release
+    needs:
+      - build-windows
+      - build-macos
+      - build-android
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: XMUSIC-*
+          merge-multiple: true
+          path: release
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/**/*.zip
+            release/**/*.dmg
+            release/**/*.apk
