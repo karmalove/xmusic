@@ -69,10 +69,6 @@ class _SearchScreenState extends State<SearchScreen> {
   _SearchTab _tab = _SearchTab.songs;
 
   List<String> get _activeSources {
-    final provider = _sourceProvider;
-    if (provider != null && provider.isQishui) {
-      return const [MusicSourceConfig.qishuiApiSource];
-    }
     return _tab == _SearchTab.mvs
         ? MusicSourceConfig.searchMvSourceOrder
         : MusicSourceConfig.searchSourceOrder;
@@ -80,6 +76,15 @@ class _SearchScreenState extends State<SearchScreen> {
 
   _SourceBucket get _bucket =>
       _buckets.putIfAbsent(_searchSource, _SourceBucket.new);
+
+  /// 汽水模式下默认选 soda chip；否则默认酷我（官网一致）。
+  String get _preferredSearchSource {
+    final provider = _sourceProvider;
+    if (provider != null && provider.isQishui) {
+      return MusicSourceConfig.sodaSource;
+    }
+    return MusicSourceConfig.searchDefaultSource;
+  }
 
   @override
   void initState() {
@@ -90,11 +95,7 @@ class _SearchScreenState extends State<SearchScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _sourceProvider = context.read<MusicSourceProvider>();
       _sourceProvider!.addListener(_onSourceChanged);
-      if (_sourceProvider!.isQishui) {
-        _searchSource = MusicSourceConfig.qishuiApiSource;
-      } else {
-        _searchSource = MusicSourceConfig.searchDefaultSource;
-      }
+      _searchSource = _preferredSearchSource;
       _loadHot();
       _loadHistory();
     });
@@ -113,16 +114,14 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _onSourceChanged() {
-    final provider = context.read<MusicSourceProvider>();
-    if (provider.isQishui) {
-      if (_searchSource != MusicSourceConfig.qishuiApiSource) {
-        setState(() => _searchSource = MusicSourceConfig.qishuiApiSource);
-        if (_searched && _query.isNotEmpty) _search(_query);
-      }
-    } else if (_searchSource == MusicSourceConfig.qishuiApiSource) {
-      setState(() => _searchSource = MusicSourceConfig.searchDefaultSource);
-      if (_searched && _query.isNotEmpty) _search(_query);
-    }
+    final preferred = _preferredSearchSource;
+    if (_searchSource == preferred) return;
+    // 仅在当前选中的是「模式默认音源」相关时跟随切换，避免打断用户手动选的 chip
+    final wasModeDefault = MusicSourceConfig.isSoda(_searchSource) ||
+        _searchSource == MusicSourceConfig.searchDefaultSource;
+    if (!wasModeDefault) return;
+    setState(() => _searchSource = preferred);
+    if (_searched && _query.isNotEmpty) _search(_query);
   }
 
   void _onFocusChanged() {
@@ -314,7 +313,11 @@ class _SearchScreenState extends State<SearchScreen> {
               await _api.searchSongs(_query, source: source, page: page);
           if (!mounted || seq != _searchSeq) return;
           bucket.songs = replace ? songs : [...bucket.songs, ...songs];
-          bucket.hasMore = songs.length >= 30;
+          bucket.hasMore = songs.length >=
+              (MusicSourceConfig.isYoutube(source) ||
+                      MusicSourceConfig.isSoda(source)
+                  ? 15
+                  : 30);
           bucket.page = page;
           bucket.loaded = true;
         case _SearchTab.playlists:
@@ -322,7 +325,8 @@ class _SearchScreenState extends State<SearchScreen> {
               await _api.searchPlaylists(_query, source: source, page: page);
           if (!mounted || seq != _searchSeq) return;
           bucket.playlists = replace ? list : [...bucket.playlists, ...list];
-          bucket.hasMore = list.length >= 20;
+          bucket.hasMore = list.length >=
+              (MusicSourceConfig.isYoutube(source) ? 10 : 20);
           bucket.page = page;
           bucket.loaded = true;
         case _SearchTab.albums:
@@ -330,7 +334,8 @@ class _SearchScreenState extends State<SearchScreen> {
               await _api.searchAlbums(_query, source: source, page: page);
           if (!mounted || seq != _searchSeq) return;
           bucket.albums = replace ? list : [...bucket.albums, ...list];
-          bucket.hasMore = list.length >= 20;
+          bucket.hasMore = list.length >=
+              (MusicSourceConfig.isYoutube(source) ? 10 : 20);
           bucket.page = page;
           bucket.loaded = true;
         case _SearchTab.artists:
@@ -338,7 +343,8 @@ class _SearchScreenState extends State<SearchScreen> {
               await _api.searchArtists(_query, source: source, page: page);
           if (!mounted || seq != _searchSeq) return;
           bucket.artists = replace ? list : [...bucket.artists, ...list];
-          bucket.hasMore = list.length >= 20;
+          bucket.hasMore = list.length >=
+              (MusicSourceConfig.isYoutube(source) ? 10 : 20);
           bucket.page = page;
           bucket.loaded = true;
         case _SearchTab.mvs:
@@ -346,7 +352,8 @@ class _SearchScreenState extends State<SearchScreen> {
               await _api.searchMvs(_query, source: source, page: page);
           if (!mounted || seq != _searchSeq) return;
           bucket.mvs = replace ? list : [...bucket.mvs, ...list];
-          bucket.hasMore = list.length >= 20;
+          bucket.hasMore = list.length >=
+              (MusicSourceConfig.isYoutube(source) ? 15 : 20);
           bucket.page = page;
           bucket.loaded = true;
       }
@@ -355,9 +362,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (!mounted || seq != _searchSeq) return;
       if (source == _searchSource && replace) {
         setState(() {
-          _error = context.read<MusicSourceProvider>().isQishui
-              ? '汽水搜索暂不可用，请切换到标准音源'
-              : '搜索失败: $e';
+          _error = '搜索失败: $e';
         });
       }
     } finally {
@@ -395,15 +400,15 @@ class _SearchScreenState extends State<SearchScreen> {
     final sources = tab == _SearchTab.mvs
         ? MusicSourceConfig.searchMvSourceOrder
         : MusicSourceConfig.searchSourceOrder;
-    final provider = context.read<MusicSourceProvider>();
-    final nextSources =
-        provider.isQishui ? const [MusicSourceConfig.qishuiApiSource] : sources;
+    final nextSources = sources;
 
     setState(() {
       _tab = tab;
       _error = null;
       if (!nextSources.contains(_searchSource)) {
-        _searchSource = nextSources.first;
+        _searchSource = nextSources.contains(_preferredSearchSource)
+            ? _preferredSearchSource
+            : nextSources.first;
       }
     });
 
@@ -456,13 +461,7 @@ class _SearchScreenState extends State<SearchScreen> {
     };
   }
 
-  String _sourceLabel(String id) {
-    if (id == MusicSourceConfig.qishuiApiSource) return '汽水';
-    for (final item in MusicSourceConfig.standardProviders) {
-      if (item.id == id) return item.label;
-    }
-    return id;
-  }
+  String _sourceLabel(String id) => MusicSourceConfig.sourceLabel(id);
 
   void _clear() {
     _controller.clear();

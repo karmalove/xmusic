@@ -101,7 +101,7 @@ class Song {
 
   factory Song.fromJson(Map<String, dynamic> json) {
     final artistsRaw = json['artists'];
-    final artists = artistsRaw is List
+    var artists = artistsRaw is List
         ? artistsRaw
               .map(
                 (e) => e is Map
@@ -112,12 +112,32 @@ class Song {
               .toList()
         : <Artist>[];
 
+    if (artists.isEmpty) {
+      final text = json['artistsText']?.toString() ??
+          json['artist']?.toString() ??
+          '';
+      if (text.isNotEmpty) {
+        artists = [
+          Artist(
+            id: '',
+            name: text,
+            source: json['source']?.toString() ?? '',
+          ),
+        ];
+      }
+    }
+
     return Song(
-      id: json['id']?.toString() ?? '',
+      id: json['mediaId']?.toString() ??
+          json['id']?.toString() ??
+          '',
       name: json['name']?.toString() ?? '',
       cover: json['cover']?.toString() ?? '',
       source: json['source']?.toString() ?? '',
-      durationMs: parseInt(json['durationMs']),
+      durationMs: parseInt(
+        json['durationMs'] ?? json['duration_ms'] ?? json['duration'],
+        treatSmallAsSeconds: true,
+      ),
       artists: artists,
       album: Album.fromJson(
         json['album'] is Map
@@ -145,10 +165,19 @@ class Song {
 
   bool get isLocal => source == 'local';
 
-  static int parseInt(dynamic value) {
-    if (value is int) return value;
-    if (value is double) return value.round();
-    return int.tryParse(value?.toString().split('.').first ?? '0') ?? 0;
+  static int parseInt(dynamic value, {bool treatSmallAsSeconds = false}) {
+    if (value is int) {
+      if (treatSmallAsSeconds && value > 0 && value < 10000) return value * 1000;
+      return value;
+    }
+    if (value is double) {
+      final n = value.round();
+      if (treatSmallAsSeconds && n > 0 && n < 10000) return n * 1000;
+      return n;
+    }
+    final n = int.tryParse(value?.toString().split('.').first ?? '0') ?? 0;
+    if (treatSmallAsSeconds && n > 0 && n < 10000) return n * 1000;
+    return n;
   }
 
   Song copyWith({String? playUrl}) => Song(

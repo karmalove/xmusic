@@ -79,7 +79,31 @@ class AlbumCover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cacheSize = (size * MediaQuery.devicePixelRatioOf(context)).round();
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final safeSize = size.isFinite && size > 0 ? size : 200.0;
+    final cacheSize = (safeSize * dpr).round().clamp(64, 2048);
+
+    final image = url != null && url!.isNotEmpty
+        ? CoverNetworkImage(
+            url: url!,
+            fit: BoxFit.cover,
+            memCacheWidth: cacheSize,
+            memCacheHeight: cacheSize,
+            maxWidthDiskCache: 512,
+            maxHeightDiskCache: 512,
+            placeholder: (_, __) => _placeholder(safeSize),
+            errorWidget: (_, __, ___) => _placeholder(safeSize),
+          )
+        : _placeholder(safeSize);
+
+    // 非有限尺寸：铺满父布局（用于 FlexibleSpace 背景等）
+    if (!size.isFinite || size <= 0) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: image,
+      );
+    }
+
     return Container(
       width: size,
       height: size,
@@ -97,28 +121,18 @@ class AlbumCover extends StatelessWidget {
           : null,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(radius),
-        child: url != null && url!.isNotEmpty
-            ? CoverNetworkImage(
-                url: url!,
-                fit: BoxFit.cover,
-                memCacheWidth: cacheSize,
-                memCacheHeight: cacheSize,
-                maxWidthDiskCache: 512,
-                maxHeightDiskCache: 512,
-                placeholder: (_, __) => _placeholder(),
-                errorWidget: (_, __, ___) => _placeholder(),
-              )
-            : _placeholder(),
+        child: image,
       ),
     );
   }
 
-  Widget _placeholder() {
+  Widget _placeholder([double? iconBase]) {
+    final base = iconBase ?? (size.isFinite && size > 0 ? size : 80.0);
     return Container(
       color: AppColors.surfaceLight,
       child: Icon(
         Icons.music_note_rounded,
-        size: size * 0.4,
+        size: base * 0.4,
         color: AppColors.textMuted,
       ),
     );

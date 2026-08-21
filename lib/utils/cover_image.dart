@@ -27,6 +27,13 @@ class CoverImage {
       headers['Referer'] = 'https://www.kugou.com/';
     } else if (u.contains('kuwo')) {
       headers['Referer'] = 'https://www.kuwo.cn/';
+    } else if (u.contains('youtube') || u.contains('ytimg.com') || u.contains('ggpht.com')) {
+      headers['Referer'] = 'https://www.youtube.com/';
+    } else if (u.contains('douyinpic') ||
+        u.contains('byteimg') ||
+        u.contains('365yg.com') ||
+        u.contains('douyin')) {
+      headers['Referer'] = 'https://www.douyin.com/';
     }
 
     return headers;

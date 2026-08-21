@@ -21,19 +21,28 @@ class MusicSourceProvider extends ChangeNotifier {
 
   bool get isQishui => _mode == MusicSourceMode.qishui;
 
-  /// 当前请求使用的 TabOS `source` 参数。
-  String get apiSource => isQishui
-      ? MusicSourceConfig.qishuiApiSource
-      : _standardProvider;
+  bool get isYoutube =>
+      !isQishui && MusicSourceConfig.isYoutube(_standardProvider);
 
-  /// 发现页歌单/榜单：汽水 catalog 403，统一用网易云发现流。
-  String get catalogSource => isQishui
-      ? MusicSourceConfig.discoverCatalogSource
-      : _standardProvider;
+  /// 当前请求使用的 TabOS `source` 参数（YouTube 回退到网易云发现流）。
+  String get apiSource {
+    if (isQishui) return MusicSourceConfig.qishuiApiSource;
+    return MusicSourceConfig.tabosCompatibleSource(_standardProvider);
+  }
+
+  /// 发现页歌单/榜单：汽水 / YouTube 不走 TabOS catalog，统一用网易云发现流。
+  String get catalogSource {
+    if (isQishui || isYoutube) {
+      return MusicSourceConfig.discoverCatalogSource;
+    }
+    return _standardProvider;
+  }
 
   String get modeDescription => isQishui
-      ? '使用抖音汽水音乐接口。不登录也可使用基础推荐；登录后可获得更精准推荐与 SVIP 音质（即将支持）。'
-      : '使用酷我、网易云、QQ 音乐、酷狗等多平台聚合接口。';
+      ? '推荐走汽水接口；搜索与网页一致，可切换酷我 / 网易云 / QQ / 酷狗 / 汽水 / YouTube。'
+      : isYoutube
+          ? '使用 YouTube 作为搜索与播放曲库；发现/推荐仍使用网易云聚合数据。'
+          : '使用酷我、网易云、QQ 音乐、酷狗、汽水、YouTube 等多平台接口。';
 
   String get bindStatusLabel => _qishuiBound ? '已绑定' : '未绑定';
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../config/music_source_config.dart';
 import '../models/song.dart';
 import '../providers/music_source_provider.dart';
 import '../providers/player_provider.dart';
@@ -59,7 +60,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
       final source = context.read<MusicSourceProvider>().apiSource;
       final results = await Future.wait([
         _loadPersonalFm(play: false, source: source),
-        _api.getRadios(source: source == 'qishui' ? null : source),
+        _api.getRadios(source: MusicSourceConfig.isSoda(source) ? null : source),
       ]);
       if (!mounted) return;
       final groups = results[1] as List<MusicRadioGroup>;
@@ -71,7 +72,7 @@ class _RecommendScreenState extends State<RecommendScreen> {
         }
       });
       if (_fmSongs.isNotEmpty) {
-        _playQueue(_fmSongs, 0);
+        await _playQueue(_fmSongs, 0);
       }
     } catch (e) {
       if (!mounted) return;
@@ -86,14 +87,14 @@ class _RecommendScreenState extends State<RecommendScreen> {
     required bool play,
     String? source,
   }) async {
-    // 与官网一致：先不带 source；失败再用当前音源。
+    // 与官网一致：连续拉取多首私人 FM，组成可切换队列。
     List<Song> songs = [];
     try {
-      songs = await _api.getPersonalFm();
+      songs = await _api.getPersonalFmQueue(count: 12, source: source);
     } catch (_) {}
-    if (songs.isEmpty && source != null && source.isNotEmpty) {
+    if (songs.isEmpty) {
       try {
-        songs = await _api.getPersonalFm(source: source);
+        songs = await _api.getPersonalFmQueue(count: 8);
       } catch (_) {}
     }
     if (!mounted) return songs;
@@ -102,18 +103,32 @@ class _RecommendScreenState extends State<RecommendScreen> {
       _mode = 'personal_fm';
     });
     if (play && songs.isNotEmpty) {
-      _playQueue(songs, 0);
+      await _playQueue(songs, 0);
     }
     return songs;
   }
 
-  void _playQueue(List<Song> queue, int index) {
+  Future<void> _playQueue(List<Song> queue, int index) async {
     if (queue.isEmpty) return;
-    context.read<PlayerProvider>().playSong(
-          queue[index.clamp(0, queue.length - 1)],
-          queue: queue,
-          index: index.clamp(0, queue.length - 1),
+    final player = context.read<PlayerProvider>();
+    try {
+      await player.playSong(
+        queue[index.clamp(0, queue.length - 1)],
+        queue: queue,
+        index: index.clamp(0, queue.length - 1),
+      );
+      if (!mounted) return;
+      if (player.error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('播放失败: ${player.error}')),
         );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('播放失败: $e')),
+      );
+    }
   }
 
   Future<void> _refreshFm() async {

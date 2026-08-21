@@ -9,10 +9,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/lyric.dart';
 import '../models/play_history.dart';
 import '../models/song.dart';
+import '../config/music_source_config.dart';
 import '../services/liked_songs_service.dart';
 import '../services/macos_tray_service.dart';
 import '../services/music_api_service.dart';
 import '../services/play_history_service.dart';
+import '../services/youtube_music_api_service.dart';
 
 enum PlayerRepeatMode { off, all, one }
 
@@ -35,6 +37,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Song? _currentSong;
   List<Song> _playlist = [];
   int _currentIndex = 0;
+  int _playGeneration = 0;
   bool _isPlaying = false;
   bool _isLoading = false;
   Duration _position = Duration.zero;
@@ -209,11 +212,17 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> playSong(Song song, {List<Song>? queue, int index = 0}) async {
+    final gen = ++_playGeneration;
     _error = null;
     _isLoading = true;
     notifyListeners();
 
     try {
+      // 先停掉上一首，避免旧缓冲占死
+      try {
+        await _player.stop();
+      } catch (_) {}
+
       if (queue != null) {
         _playlist = queue;
         _currentIndex = index;
@@ -234,25 +243,56 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
         _lyricsLoading = false;
         _lyricCache[song.uniqueKey] = null;
       } else {
-        _loadLyrics(song);
+        // 歌词异步，不阻塞起播
+        unawaited(_loadLyrics(song));
       }
+
+      if (gen != _playGeneration) return;
 
       if (song.isLocal && song.playUrl != null) {
         await _player.setFilePath(song.playUrl!);
       } else if (song.playUrl != null &&
           (song.playUrl!.startsWith('http://') ||
               song.playUrl!.startsWith('https://'))) {
-        await _player.setUrl(song.playUrl!);
+        await _setRemoteUrl(song, song.playUrl!);
       } else {
         final url = await _api.getSongUrl(song);
-        await _player.setUrl(url);
+        if (gen != _playGeneration) return;
+        await _setRemoteUrl(song, url);
       }
+
+      if (gen != _playGeneration) return;
       await _player.play();
       await _recordHistory(song);
     } catch (e) {
+      if (gen != _playGeneration) return;
       _error = e.toString();
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  /// YouTube：先无 header 起播（避免 just_audio 本地代理卡死），失败再带 header。
+  Future<void> _setRemoteUrl(Song song, String url) async {
+    final isYt = MusicSourceConfig.isYoutube(song.source) ||
+        url.contains('googlevideo.com');
+
+    if (!isYt) {
+      await _player
+          .setUrl(url)
+          .timeout(const Duration(seconds: 20));
+      return;
+    }
+
+    try {
+      await _player
+          .setUrl(url)
+          .timeout(const Duration(seconds: 15));
+      return;
+    } catch (_) {
+      await _player
+          .setUrl(url, headers: YoutubeMusicApiService.playbackHeaders)
+          .timeout(const Duration(seconds: 20));
     }
   }
 

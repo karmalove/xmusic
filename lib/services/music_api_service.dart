@@ -1,10 +1,13 @@
 import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
+import '../config/music_source_config.dart';
 import '../models/lyric.dart';
 import '../models/song.dart';
 import '../utils/lrc_parser.dart';
 import 'music_secure_session.dart';
+import 'soda_music_api_service.dart';
+import 'youtube_music_api_service.dart';
 
 class MusicApiService {
   MusicApiService._();
@@ -14,9 +17,15 @@ class MusicApiService {
   factory MusicApiService() => instance;
 
   final MusicSecureSession _session = MusicSecureSession();
+  final YoutubeMusicApiService _youtube = YoutubeMusicApiService.instance;
+  final SodaMusicApiService _soda = SodaMusicApiService.instance;
 
   /// Ensures the secure session is ready before parallel API calls.
   Future<void> ensureReady() => _session.ensureSession();
+
+  bool _isYoutube(String source) => MusicSourceConfig.isYoutube(source);
+
+  bool _isSoda(String source) => MusicSourceConfig.isSoda(source);
 
   Future<Map<String, dynamic>> _get(String path, {bool retry = true}) async {
     await _session.ensureSession();
@@ -73,6 +82,12 @@ class MusicApiService {
   Future<List<Song>> searchSongs(String query,
       {String source = ApiConfig.defaultSource, int page = 1}) async {
     if (query.trim().isEmpty) return [];
+    if (_isYoutube(source)) {
+      return _youtube.searchSongs(query, page: page);
+    }
+    if (_isSoda(source)) {
+      return _soda.searchSongs(query, page: page);
+    }
     final result = await _get(
       '/search/songs?q=${Uri.encodeComponent(query.trim())}&source=$source&page=$page&page_size=30',
     );
@@ -82,6 +97,12 @@ class MusicApiService {
   Future<List<Playlist>> searchPlaylists(String query,
       {String source = ApiConfig.defaultSource, int page = 1}) async {
     if (query.trim().isEmpty) return [];
+    if (_isYoutube(source)) {
+      return _youtube.searchPlaylists(query, page: page);
+    }
+    if (_isSoda(source)) {
+      return _soda.searchPlaylists(query, page: page);
+    }
     final result = await _get(
       '/search/playlists?q=${Uri.encodeComponent(query.trim())}&source=$source&page=$page&page_size=20',
     );
@@ -91,6 +112,12 @@ class MusicApiService {
   Future<List<Album>> searchAlbums(String query,
       {String source = ApiConfig.defaultSource, int page = 1}) async {
     if (query.trim().isEmpty) return [];
+    if (_isYoutube(source)) {
+      return _youtube.searchAlbums(query, page: page);
+    }
+    if (_isSoda(source)) {
+      return _soda.searchAlbums(query, page: page);
+    }
     final result = await _get(
       '/search/albums?q=${Uri.encodeComponent(query.trim())}&source=$source&page=$page&page_size=20',
     );
@@ -100,6 +127,12 @@ class MusicApiService {
   Future<List<Artist>> searchArtists(String query,
       {String source = ApiConfig.defaultSource, int page = 1}) async {
     if (query.trim().isEmpty) return [];
+    if (_isYoutube(source)) {
+      return _youtube.searchArtists(query, page: page);
+    }
+    if (_isSoda(source)) {
+      return _soda.searchArtists(query, page: page);
+    }
     final result = await _get(
       '/search/artists?q=${Uri.encodeComponent(query.trim())}&source=$source&page=$page&page_size=20',
     );
@@ -110,6 +143,12 @@ class MusicApiService {
       {String source = ApiConfig.defaultSource}) async {
     final q = query.trim();
     if (q.isEmpty) return [];
+    if (_isYoutube(source)) {
+      return _youtube.searchSuggest(q);
+    }
+    if (_isSoda(source)) {
+      return _soda.searchSuggest(q);
+    }
     final result = await _get(
       '/search/suggest?q=${Uri.encodeComponent(q)}&source=$source',
     );
@@ -147,6 +186,12 @@ class MusicApiService {
   Future<List<MusicVideo>> searchMvs(String query,
       {String source = ApiConfig.defaultSource, int page = 1}) async {
     if (query.trim().isEmpty) return [];
+    if (_isYoutube(source)) {
+      return _youtube.searchMvs(query, page: page);
+    }
+    if (_isSoda(source)) {
+      return _soda.searchMvs(query, page: page);
+    }
     final result = await _get(
       '/search/mvs?q=${Uri.encodeComponent(query.trim())}'
       '&source=$source&page=$page&page_size=20',
@@ -571,6 +616,9 @@ class MusicApiService {
 
   Future<List<Song>> getPlaylistSongs(String playlistId,
       {String source = ApiConfig.defaultSource, int page = 1}) async {
+    if (_isYoutube(source)) {
+      return _youtube.getPlaylistSongs(playlistId, page: page);
+    }
     final result = await _get(
       '/playlists/songs/${Uri.encodeComponent(source)}/${Uri.encodeComponent(playlistId)}?page=$page&page_size=50',
     );
@@ -578,21 +626,101 @@ class MusicApiService {
   }
 
   Future<String> getSongUrl(Song song) async {
-    final result = await _get(
-      '/songs/url/${Uri.encodeComponent(song.source)}/${Uri.encodeComponent(song.id)}',
-    );
-    final data = result['data'];
-    if (data is Map && data['url'] != null) {
-      return data['url'] as String;
+    if (_isYoutube(song.source)) {
+      return _youtube.getSongUrl(song.id);
     }
+    if (_isSoda(song.source)) {
+      return _soda.getSongUrl(song.id);
+    }
+    // 与官网 getSongUrl 一致：附带 name/artist/duration_ms，
+    // 否则网易云等 VIP/无版权曲会 404；成功时服务端会跨源解析（如落到酷我）。
+    final params = <String, String>{};
+    if (song.name.isNotEmpty) params['name'] = song.name;
+    if (song.artistName.isNotEmpty) params['artist'] = song.artistName;
+    if (song.durationMs > 0) params['duration_ms'] = '${song.durationMs}';
+    final query = params.isEmpty
+        ? ''
+        : '?${params.entries.map((e) => '${e.key}=${Uri.encodeComponent(e.value)}').join('&')}';
+
+    try {
+      final result = await _get(
+        '/songs/url/${Uri.encodeComponent(song.source)}/${Uri.encodeComponent(song.id)}$query',
+      );
+      final url = _extractPlayUrl(result['data']);
+      if (url != null) return url;
+    } catch (_) {}
+
+    try {
+      final resolveParams = {
+        'id': song.id,
+        'source': song.source,
+        ...params,
+      };
+      final qs = resolveParams.entries
+          .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
+          .join('&');
+      final result = await _get('/playback/resolve?$qs');
+      final url = _extractPlayUrl(result['data']);
+      if (url != null) return url;
+    } catch (_) {}
+
     throw Exception('无法获取播放地址');
   }
 
+  String? _extractPlayUrl(dynamic data) {
+    if (data is! Map) return null;
+    final map = Map<String, dynamic>.from(data);
+    for (final key in [
+      'url',
+      'main',
+      'main_url',
+      'mainPlayUrl',
+      'main_play_url',
+      'backup',
+      'backup_url',
+      'backupPlayUrl',
+      'backup_play_url',
+    ]) {
+      final v = map[key]?.toString() ?? '';
+      if (v.startsWith('http://') || v.startsWith('https://')) return v;
+    }
+    return null;
+  }
+
+  /// 连续拉取私人 FM，拼成可翻页队列（接口每次通常只返回 1 首）。
+  Future<List<Song>> getPersonalFmQueue({
+    int count = 12,
+    String? source,
+  }) async {
+    final seen = <String>{};
+    final out = <Song>[];
+    for (var i = 0; i < count && out.length < count; i++) {
+      List<Song> batch = [];
+      try {
+        batch = await getPersonalFm(source: source);
+      } catch (_) {
+        if (source != null) {
+          try {
+            batch = await getPersonalFm();
+          } catch (_) {}
+        }
+      }
+      if (batch.isEmpty) break;
+      for (final s in batch) {
+        if (s.id.isEmpty) continue;
+        if (seen.add(s.uniqueKey)) out.add(s);
+      }
+    }
+    return out;
+  }
+
   Future<LyricData?> fetchLyrics(Song song) async {
+    final lyricSource =
+        _isYoutube(song.source) ? 'netease' : song.source;
     try {
       final result = await _get(
         '/lyrics/discover?id=${Uri.encodeComponent(song.id)}'
-        '&source=${Uri.encodeComponent(song.source)}'
+        '&source=${Uri.encodeComponent(lyricSource)}'
         '&name=${Uri.encodeComponent(song.name)}'
         '&artist=${Uri.encodeComponent(song.artistName)}'
         '&duration_ms=${song.durationMs}',
