@@ -103,7 +103,7 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _history = await _historyService.load();
     _liked = await _likedService.load();
     final prefs = await SharedPreferences.getInstance();
-    _backgroundPlayback = prefs.getBool(_prefBackground) ?? Platform.isMacOS;
+    _backgroundPlayback = prefs.getBool(_prefBackground) ?? true;
     _showLyrics = prefs.getBool(_prefShowLyrics) ?? true;
     _showTraySong = prefs.getBool(_prefShowTraySong) ?? false;
     notifyListeners();
@@ -116,8 +116,12 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     );
     _syncTray();
 
-    final session = await AudioSession.instance;
-    await session.configure(const AudioSessionConfiguration.music());
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+    } catch (_) {
+      // Windows 等桌面端 audio_session 可能不可用，不影响播放
+    }
 
     _playerStateSub = _player.playerStateStream.listen((state) {
       final wasPlaying = _isPlaying;
@@ -508,8 +512,8 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // macOS: closing the window only hides it; playback continues in the menu bar.
-    if (Platform.isMacOS) return;
+    // 桌面端窗口失焦/最小化不应打断播放；后台开关仅作用于移动端。
+    if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) return;
     if (_backgroundPlayback) return;
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||

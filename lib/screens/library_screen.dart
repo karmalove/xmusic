@@ -70,8 +70,10 @@ class LibraryScreen extends StatelessWidget {
                       ),
                       subtitle: Text(
                         Platform.isMacOS
-                            ? '关闭窗口后音乐继续在状态栏播放（macOS 默认开启）'
-                            : '关闭后切到后台或离开应用会暂停播放',
+                            ? '关闭窗口后音乐继续在状态栏播放（默认开启）'
+                            : Platform.isWindows || Platform.isLinux
+                                ? '桌面端默认开启，窗口失焦不会暂停播放'
+                                : '默认开启；关闭后切到后台会暂停播放',
                         style: const TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 12,
