@@ -63,7 +63,38 @@ jobs:
           $buildDir = "build/windows/x64/runner/Release"
           $distDir = "dist/XMUSIC-Windows-x64"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
+          if (Test-Path $distDir) { Remove-Item -Recurse -Force $distDir }
           Copy-Item -Recurse -Force $buildDir $distDir
+
+          # Flutter Windows zip 需随包附带 VC++ 运行库，否则缺 vcruntime140_1.dll
+          $sys32 = Join-Path $env:SystemRoot "System32"
+          $vcDlls = @(
+            "msvcp140.dll",
+            "vcruntime140.dll",
+            "vcruntime140_1.dll"
+          )
+          foreach ($dll in $vcDlls) {
+            $src = Join-Path $sys32 $dll
+            if (-not (Test-Path $src)) {
+              throw "Missing required VC++ runtime DLL: $src"
+            }
+            Copy-Item -Force $src (Join-Path $distDir $dll)
+            Write-Host "Bundled $dll"
+          }
+
+          # 备用：附带官方安装包，方便系统级安装
+          $vcRedist = Join-Path $distDir "vc_redist.x64.exe"
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $vcRedist
+          Write-Host "Bundled vc_redist.x64.exe ($((Get-Item $vcRedist).Length) bytes)"
+
+          @"
+          XMUSIC Windows
+
+          1. 解压后直接运行 XMUSIC.exe
+          2. 若仍提示缺少 vcruntime140 / msvcp140：
+             双击同目录 vc_redist.x64.exe 安装 Visual C++ 运行库后重试
+          "@ | Set-Content -Encoding UTF8 (Join-Path $distDir "README.txt")
+
           Compress-Archive -Path $distDir -DestinationPath dist/XMUSIC-Windows-x64.zip -Force
 
       - name: Upload artifact

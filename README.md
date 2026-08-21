@@ -73,6 +73,9 @@ flutter build macos --release
 
 # Windows
 flutter build windows --release
+# 发布 zip 需随包附带 VC++ 运行库 DLL（msvcp140 / vcruntime140 / vcruntime140_1）
+# CI 已自动打包；若手动分发请从 System32 复制上述 DLL 到 exe 同目录
+# 或安装 https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 # Linux
 flutter build linux --release
@@ -117,6 +120,7 @@ lib/
 
 - 音乐 API 需要网络连接
 - API 服务由第三方提供，可用性取决于服务端状态
+- Windows：若提示缺少 `vcruntime140_1.dll`，安装 [VC++ x64 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)，或使用 Release 包内已附带的 DLL / `vc_redist.x64.exe`
 - 本项目仅供学习交流使用
 
 ## License
