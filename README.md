@@ -121,6 +121,7 @@ lib/
 - 音乐 API 需要网络连接
 - API 服务由第三方提供，可用性取决于服务端状态
 - Windows：若提示缺少 `vcruntime140_1.dll`，安装 [VC++ x64 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)，或使用 Release 包内已附带的 DLL / `vc_redist.x64.exe`
+- Windows：若出现 `CERTIFICATE_VERIFY_FAILED` / `handshake.cc`，请使用 v1.0.4+（已处理系统根证书懒加载问题）
 - 本项目仅供学习交流使用
 
 ## License

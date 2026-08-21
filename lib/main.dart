@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -7,9 +9,16 @@ import 'providers/music_source_provider.dart';
 import 'providers/player_provider.dart';
 import 'screens/home_screen.dart';
 import 'theme/app_theme.dart';
+import 'utils/windows_http_overrides.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Windows：修复 Dart 无法懒加载系统根证书导致的 SSL 握手失败
+  if (Platform.isWindows) {
+    HttpOverrides.global = WindowsHttpOverrides();
+  }
+
   PaintingBinding.instance.imageCache.maximumSize = 150;
   PaintingBinding.instance.imageCache.maximumSizeBytes = 48 << 20;
   SystemChrome.setSystemUIOverlayStyle(
