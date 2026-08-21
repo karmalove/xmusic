@@ -6,6 +6,7 @@ import '../providers/player_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/lyric_view.dart';
+import '../widgets/play_queue_sheet.dart';
 
 class PlayerScreen extends StatelessWidget {
   const PlayerScreen({super.key});
@@ -96,6 +97,46 @@ class PlayerScreen extends StatelessWidget {
                           ),
                           onPressed: player.toggleShowLyrics,
                           tooltip: player.showLyrics ? '显示封面' : '显示歌词',
+                        ),
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            IconButton(
+                              icon: const Icon(
+                                Icons.queue_music_rounded,
+                                color: AppColors.textSecondary,
+                              ),
+                              onPressed: () => PlayQueueSheet.show(context),
+                              tooltip: '播放列表',
+                            ),
+                            if (player.playlist.isNotEmpty)
+                              Positioned(
+                                right: 6,
+                                top: 8,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  constraints: const BoxConstraints(minWidth: 16),
+                                  child: Text(
+                                    player.playlist.length > 99
+                                        ? '99+'
+                                        : '${player.playlist.length}',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.black,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ],
                     ),

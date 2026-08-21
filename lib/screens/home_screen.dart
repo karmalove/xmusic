@@ -8,6 +8,7 @@ import '../providers/player_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/play_queue_sheet.dart';
 import 'charts_screen.dart';
 import 'discover_screen.dart';
 import 'library_screen.dart';
@@ -142,6 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   isLoading: player.isLoading,
                   showLyrics: player.showLyrics,
                   progress: player.progress,
+                  queueCount: player.playlist.length,
                 );
               },
               builder: (context, vm, _) {
@@ -156,11 +158,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   isLoading: vm.isLoading,
                   showLyrics: vm.showLyrics,
                   progress: vm.progress,
+                  queueCount: vm.queueCount,
                   onTap: () => Navigator.push(
                     context,
                     PageRouteBuilder(
-                      pageBuilder: (_, __, ___) => const PlayerScreen(),
-                      transitionsBuilder: (_, anim, __, child) {
+                      pageBuilder: (_, _, _) => const PlayerScreen(),
+                      transitionsBuilder: (_, anim, _, child) {
                         return SlideTransition(
                           position:
                               Tween<Offset>(
@@ -179,6 +182,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   onPlayPause: player.togglePlay,
                   onNext: player.next,
+                  onQueue: () => PlayQueueSheet.show(context),
                   onClose: player.stopPlayback,
                 );
               },
@@ -293,6 +297,7 @@ class _MiniPlayerViewModel {
   final bool isLoading;
   final bool showLyrics;
   final double progress;
+  final int queueCount;
 
   const _MiniPlayerViewModel({
     required this.title,
@@ -303,6 +308,7 @@ class _MiniPlayerViewModel {
     required this.isLoading,
     required this.showLyrics,
     required this.progress,
+    required this.queueCount,
   });
 
   @override
@@ -315,6 +321,7 @@ class _MiniPlayerViewModel {
         isPlaying == other.isPlaying &&
         isLoading == other.isLoading &&
         showLyrics == other.showLyrics &&
+        queueCount == other.queueCount &&
         (progress - other.progress).abs() < 0.02;
   }
 
@@ -327,6 +334,7 @@ class _MiniPlayerViewModel {
     isPlaying,
     isLoading,
     showLyrics,
+    queueCount,
     (progress * 50).round(),
   );
 }

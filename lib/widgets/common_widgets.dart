@@ -366,10 +366,12 @@ class MiniPlayer extends StatelessWidget {
   final bool isLoading;
   final bool showLyrics;
   final double progress;
+  final int queueCount;
   final VoidCallback onTap;
   final VoidCallback onPlayPause;
   final VoidCallback onNext;
   final VoidCallback onClose;
+  final VoidCallback? onQueue;
 
   const MiniPlayer({
     super.key,
@@ -381,10 +383,12 @@ class MiniPlayer extends StatelessWidget {
     required this.isLoading,
     this.showLyrics = false,
     required this.progress,
+    this.queueCount = 0,
     required this.onTap,
     required this.onPlayPause,
     required this.onNext,
     required this.onClose,
+    this.onQueue,
   });
 
   @override
@@ -480,6 +484,46 @@ class MiniPlayer extends StatelessWidget {
                     size: 28,
                   ),
                 ),
+                if (onQueue != null)
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      IconButton(
+                        onPressed: onQueue,
+                        tooltip: '播放列表',
+                        icon: const Icon(
+                          Icons.queue_music_rounded,
+                          color: AppColors.textPrimary,
+                          size: 26,
+                        ),
+                      ),
+                      if (queueCount > 0)
+                        Positioned(
+                          right: 6,
+                          top: 6,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            constraints: const BoxConstraints(minWidth: 16),
+                            child: Text(
+                              queueCount > 99 ? '99+' : '$queueCount',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 IconButton(
                   onPressed: onClose,
                   tooltip: '停止播放',

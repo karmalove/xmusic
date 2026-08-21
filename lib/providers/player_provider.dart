@@ -324,6 +324,35 @@ class PlayerProvider extends ChangeNotifier with WidgetsBindingObserver {
     await playQueue(_liked, startIndex: startIndex);
   }
 
+  /// 播放当前队列中指定下标（对齐网页 playlist panel 点击切歌）。
+  Future<void> playAt(int index) async {
+    if (_playlist.isEmpty) return;
+    final i = index.clamp(0, _playlist.length - 1);
+    await playSong(_playlist[i], queue: _playlist, index: i);
+  }
+
+  /// 从播放列表移除一首；若删的是当前曲则自动切到下一首或停止。
+  Future<void> removeFromPlaylist(int index) async {
+    if (index < 0 || index >= _playlist.length) return;
+    final removingCurrent = index == _currentIndex;
+    final next = List<Song>.from(_playlist)..removeAt(index);
+    if (next.isEmpty) {
+      await stopPlayback();
+      return;
+    }
+    _playlist = next;
+    if (removingCurrent) {
+      final newIndex = index.clamp(0, next.length - 1);
+      await playSong(next[newIndex], queue: next, index: newIndex);
+    } else {
+      if (index < _currentIndex) _currentIndex -= 1;
+      notifyListeners();
+    }
+  }
+
+  /// 清空播放列表并停止（对齐网页 clearAll）。
+  Future<void> clearPlaylist() => stopPlayback();
+
   Future<void> togglePlay() async {
     if (_player.playing) {
       await _player.pause();
