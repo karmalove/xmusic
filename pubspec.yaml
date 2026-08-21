@@ -1,7 +1,7 @@
 name: xmusic
 description: "Xmusic - 跨平台音乐播放器，汽水音乐风格 UI"
 publish_to: 'none'
-version: 1.0.5+6
+version: 1.0.6+7
 
 environment:
   sdk: ^3.12.2

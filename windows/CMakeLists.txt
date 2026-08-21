@@ -32,6 +32,13 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
 
+# GitHub windows-latest (VS 2026 / MSVC 14.51) turns deprecated
+# <experimental/coroutine> into a hard error (STL1011/C2338).
+# just_audio_windows still pulls it via C++/WinRT — silence until plugins migrate.
+if(MSVC)
+  add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+endif()
+
 # Compilation settings that should be applied to most targets.
 #
 # Be cautious about adding new options here, as plugins use this function by
